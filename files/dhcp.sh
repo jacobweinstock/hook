@@ -4,22 +4,35 @@
 # VLAN interface.
 # This script accepts an input parameter of true or false.
 # true: run the dhcp client with the one shot option
-# false: run the dhcp client as a service
+# false: run the dhcp client as a background process
 set -x
+
+get_vlan_id() {
+	cmdline=$(cat /proc/cmdline)
+	substring="vlan_id="
+	if ! grep -q "${substring}" "/proc/cmdline"; then
+		return
+	fi
+	# this gets the index in $cmdline of the "v" in "vlan_id="
+	idx=${cmdline%%"$substring"*}
+	# this gets the substring starting from $idx + 12 characters. example: "vlan_id=4094"
+	begin="${#idx}"
+	end=$((begin+12))
+	x=$(echo "${cmdline}" | cut -c "${begin}"-"${end}")
+	# this gets just the numbers from $x (vlan_id=4094) empty string if no numbers
+	vlan=$(echo "${x}" | grep -o '[0-9]\+')
+	echo "${vlan}"
+}
 
 run_dhcp_client() {
 	one_shot="$1"
-	al="eth*"
+	al="eth*" # all interfaces
 
-	# shellcheck disable=SC2013
-	for x in $(cat /proc/cmdline); do
-		# shellcheck disable=SC2022
-		echo "$x" | grep -qe 'vlan_id*' || continue
-		vlan_id="${x#vlan_id=}"
-		if [ -n "$vlan_id" ]; then
-			al="eth*.*"
-		fi
-	done
+	vlan_id=$(get_vlan_id)
+	if [ -n "$vlan_id" ]; then
+		al="eth*.*" # all vlan interfaces
+	fi
+
 
 	# Boots send kernel command line parameter "ip=dhcp", this causes the system to configure the network interface(s) with DHCP.
 	# When an environment's network configuration has this machine connected a trunked interface with a default/native VLAN, the
@@ -30,11 +43,11 @@ run_dhcp_client() {
 	ipa=$(ip -4 -o addr show dev eth0 | awk '{print $4}')
 	ip addr del dev eth0 "$ipa" || true
 
+	args=""
 	if [ "$one_shot" = "true" ]; then
-		/sbin/dhcpcd --nobackground -f /dhcpcd.conf --allowinterfaces "${al}" -1
-	else
-		/sbin/dhcpcd --nobackground -f /dhcpcd.conf --allowinterfaces "${al}"
+		args="-1"
 	fi
+	/sbin/dhcpcd --nobackground -f /dhcpcd.conf --allowinterfaces "$al" "$args"
 
 }
 
