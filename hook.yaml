@@ -1,28 +1,30 @@
 kernel:
-  image: quay.io/tinkerbell/hook-kernel:5.10.85-d1225df88208e5a732e820a182b75fb35c737bdd
-  cmdline: "console=tty0 console=ttyS0 console=ttyAMA0 console=ttysclp0"
-
+  image: linuxkit/kernel:5.15.27-arm64
+  cmdline: "console=ttyAMA0 console=tty0 console=tty1 linuxkit.unified_cgroup_hierarchy=1"
 init:
-  - linuxkit/init:v0.8
-  - linuxkit/runc:v0.8
-  - linuxkit/containerd:v0.8
-  - linuxkit/ca-certificates:v0.8
-
+  - linuxkit/init:14df799bb3b9e0eb0491da9fda7f32a108a2e2a5
+  - linuxkit/runc:436357ce16dd663e24f595bcec26d5ae476c998e
+  - linuxkit/containerd:eeb3aaf497c0b3f6c67f3a245d61ea5a568ca718
+  - linuxkit/ca-certificates:4de36e93dc87f7ccebd20db616ed10d381911d32
+  - linuxkit/firmware:a17106a98940006529c714a3783eb03238c335a7
 onboot:
+  - name: modprobe
+    image: linuxkit/modprobe:5dd4d7238f760bcd9f91b9166f414da953242f43
+    command: ["modprobe", "nicvf"]
   - name: sysctl
-    image: linuxkit/sysctl:v0.8
-
+    image: linuxkit/sysctl:e5959517fab7b44692ad63941eecf37486e73799
+  - name: rngd1
+    image: linuxkit/rngd:331294919ba6d953d261a2694019b659a98535a4
+    command: ["/sbin/rngd", "-1"]
   - name: sysfs
-    image: linuxkit/sysfs:v0.8
-
+    image: linuxkit/sysfs:4f58a2447d328d391143984fc4e8508b00dc6e5b
   - name: vlan
     image: linuxkit/ip:6cc44dd4e18ddb02de01bc4b34b5799971b6a7bf
     binds.add:
       - /etc/ip/vlan.sh:/etc/ip/vlan.sh
     command: ["/etc/ip/vlan.sh"]
-
   - name: dhcpcd
-    image: linuxkit/dhcpcd:v0.8
+    image: linuxkit/dhcpcd:2a8ed08fea442909ba10f950d458191ed3647115
     command: ["/etc/ip/dhcp.sh", "true"]
     binds.add:
       - /var/lib/dhcpcd:/var/lib/dhcpcd
@@ -32,20 +34,17 @@ onboot:
     runtime:
       mkdir:
         - /var/lib/dhcpcd
-
 services:
   - name: getty
-    image: linuxkit/getty:v0.8
+    image: linuxkit/getty:06f34bce0facea79161566d67345c3ea49965437
     binds.add:
       - /etc/profile.d/local.sh:/etc/profile.d/local.sh
     env:
-      - INSECURE=true
-
+     - INSECURE=true
   - name: rngd
-    image: linuxkit/rngd:v0.8
-
+    image: linuxkit/rngd:331294919ba6d953d261a2694019b659a98535a4
   - name: dhcpcd
-    image: linuxkit/dhcpcd:v0.8
+    image: linuxkit/dhcpcd:2a8ed08fea442909ba10f950d458191ed3647115
     command: ["/etc/ip/dhcp.sh", "false"]
     binds.add:
       - /var/lib/dhcpcd:/var/lib/dhcpcd
@@ -55,12 +54,8 @@ services:
     runtime:
       mkdir:
         - /var/lib/dhcpcd
-
   - name: ntpd
-    image: linuxkit/openntpd:v0.8
-    binds:
-      - /var/run:/var/run
-
+    image: linuxkit/openntpd:dd353cac6cbd816008c565041cec6650090d0ad0
   - name: hook-docker
     image: quay.io/tinkerbell/hook-docker:latest
     capabilities:
@@ -97,11 +92,15 @@ services:
     runtime:
       mkdir:
         - /var/run/docker
-
-#dbg  - name: sshd
-#dbg    image: linuxkit/sshd:666b4a1a323140aa1f332826164afba506abf597
-
+  - name: sshd
+    image: linuxkit/sshd:62036c2a279715d05e8298b9269a0659964f2619
+    binds.add:
+      - /root/.ssh:/root/.ssh
 files:
+  - path: root/.ssh/authorized_keys
+    source: ~/.ssh/id_rsa.pub
+    mode: "0600"
+    optional: true
   - path: etc/profile.d/local.sh
     contents: |
       alias       docker='ctr -n services.linuxkit tasks exec --tty --exec-id cmd hook-docker docker'
@@ -119,13 +118,3 @@ files:
   - path: dhcpcd.conf
     source: "files/dhcpcd.conf"
     mode: "0644"
-
-#dbg  - path: root/.ssh/authorized_keys
-#dbg    source: ~/.ssh/id_rsa.pub
-#dbg    mode: "0600"
-#dbg    optional: true
-
-trust:
-  org:
-    - linuxkit
-    - library
