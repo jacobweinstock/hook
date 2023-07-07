@@ -14,6 +14,8 @@ SHELL := bash
 # This option is for running docker manifest command
 export DOCKER_CLI_EXPERIMENTAL := enabled
 
+# "$T" is the current git short hash. For example: "sha-5e2f423"
+
 ARCH := $(shell uname -m)
 ifeq ($(ARCH),x86_64)
 ARCH = amd64
@@ -40,6 +42,12 @@ image-$(mode)-$(arch): out/$T/$(mode)/$(arch)/hook.tar
 out/$T/$(mode)/$(arch)/hook.tar: out/$T/$(mode)/$(arch)/hook.yaml out/$T/hook-bootkit-$(arch) out/$T/hook-docker-$(arch)
 	linuxkit build -docker -arch $(arch) -format tar-kernel-initrd -name hook -dir $$(@D) $$<
 	mv $$(@D)/hook-initrd.tar $$@
+
+out/$T/$(mode)/$(arch)/hook.iso: out/$T/$(mode)/$(arch)/hook.yaml out/$T/hook-bootkit-$(arch) out/$T/hook-docker-$(arch)
+	linuxkit build -docker -arch $(arch) -format iso-bios -name hook -dir $$(@D) $$<
+
+out/$T/$(mode)/$(arch)/hook-efi.iso: out/$T/$(mode)/$(arch)/hook.yaml out/$T/hook-bootkit-$(arch) out/$T/hook-docker-$(arch)
+	linuxkit build -docker -arch $(arch) -format iso-efi -name hook -dir $$(@D) $$<
 
 out/$T/$(mode)/$(arch)/cmdline out/$T/$(mode)/$(arch)/initrd.img out/$T/$(mode)/$(arch)/kernel: out/$T/$(mode)/$(arch)/hook.tar
 	tar xf $$^ -C $$(@D) $$(@F)
@@ -89,6 +97,9 @@ push-hook-bootkit push-hook-docker:
 	platforms=$${platforms// /,}
 	docker buildx build --platform $$platforms --push -t $(ORG)/$(container):$T $(container)
 
+.PHONY: distr
+distr: dist isos ## Build tarballs for distribution
+
 .PHONY: dist
 dist: out/$T/rel/amd64/hook.tar out/$T/rel/arm64/hook.tar ## Build tarballs for distribution
 dbg-dist: out/$T/dbg/$(ARCH)/hook.tar ## Build debug enabled tarball
@@ -104,3 +115,22 @@ dist dbg-dist:
 	tar -xf $$f -C $$d/ initrd.img && mv $$d/initrd.img $$d/initramfs-$$arch
 	tar -cf- -C $$d initramfs-$$arch vmlinuz-$$arch | pigz > $$d/hook_$$arch.tar.gz
 	done
+
+out/$T/rel/hook_efi_iso_x86_64.tar.gz: out/$T/rel/amd64/hook-efi.iso
+	tar -zcvf hook_efi_iso_x86_64.tar.gz -C out/$T/rel/amd64 hook-efi.iso
+	mv hook_efi_iso_x86_64.tar.gz out/$T/rel/
+
+out/$T/rel/hook_efi_iso_aarch64.tar.gz: out/$T/rel/arm64/hook-efi.iso
+	tar -zcvf hook_efi_iso_aarch64.tar.gz -C out/$T/rel/arm64 hook-efi.iso
+	mv hook_efi_iso_aarch64.tar.gz out/$T/rel/
+
+out/$T/rel/hook_bios_iso_x86_64.tar.gz: out/$T/rel/amd64/hook.iso
+	tar -zcvf hook_bios_iso_x86_64.tar.gz -C out/$T/rel/amd64 hook.iso
+	mv hook_bios_iso_x86_64.tar.gz out/$T/rel/
+
+out/$T/rel/hook_bios_iso_aarch64.tar.gz: out/$T/rel/arm64/hook.iso
+	tar -zcvf hook_bios_iso_aarch64.tar.gz -C out/$T/rel/arm64 hook.iso
+	mv hook_bios_iso_aarch64.tar.gz out/$T/rel/
+
+.PHONY: isos
+isos: out/$T/rel/hook_bios_iso_x86_64.tar.gz out/$T/rel/hook_bios_iso_aarch64.tar.gz out/$T/rel/hook_efi_iso_x86_64.tar.gz out/$T/rel/hook_efi_iso_aarch64.tar.gz
